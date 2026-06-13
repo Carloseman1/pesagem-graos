@@ -38,7 +38,7 @@ docker compose up -d
 .\mvnw.cmd spring-boot:run
 ```
 
-Espere aparecer `Started PesagemGraosApplication` no log. As migrations do Flyway rodam sozinhas na subida — não precisa executar SQL manual.
+Espere aparecer `Started PesagemGraosApplication` no log. As migrations do Flyway rodam sozinhas na subida, não precisa executar SQL manual.
 
 **Terminal 2 — cadastros e simulação:**
 
@@ -62,7 +62,7 @@ Esperado: pesagem com placa `ABC1D23` e transação com status `CONCLUIDA`.
 
 ### O que o `seed_demo.ps1` faz
 
-Antes de simular a balança, o sistema precisa de cadastros no banco — filial, balança com API key, caminhão com tara, tipo de grão e uma transação em andamento. Sem isso a leitura até entra na fila, mas na hora de salvar quebra porque não acha caminhão ou transação aberta.
+Antes de simular a balança, o sistema precisa de cadastros no banco filial, balança com API key, caminhão com tara, tipo de grão e uma transação em andamento. Sem isso a leitura até entra na fila, mas na hora de salvar quebra porque não acha caminhão ou transação aberta.
 
 Criei o script `scripts/seed_demo.ps1` pra não ficar montando curl toda vez que fui testar. Ele cadastra tudo na ordem certa com os mesmos dados que o simulador Python usa (`balanca-01`, placa `ABC1D23`, etc.).
 
@@ -77,9 +77,9 @@ docker compose up -d
 
 ### Simulando a balança (Python)
 
-O script `scripts/simular_balanca.py` imita o ESP32 — manda leituras a cada 100ms em três fases: oscilação alta (caminhão posicionando), oscilação menor e peso estável. Todas retornam `202 Accepted`.
+O script `scripts/simular_balanca.py` imita o ESP32, manda leituras a cada 100ms em três fases: oscilação alta (caminhão posicionando), oscilação menor e peso estável. Todas retornam `202 Accepted`.
 
-Usei IA só pra gerar esse script Python. O backend inteiro eu fiz manualmente; o simulador é só porque não tinha o ESP32 físico pra demonstrar o fluxo.
+Usei IA só pra gerar esse script Python. O backend inteiro eu fiz manualmente; o simulador é só porque não tinha o ESP32 físico pra demonstrar o fluxo e queria mostrar o projeto rodando na simulação.
 
 ---
 
@@ -93,9 +93,9 @@ Service     →  regras de negócio, estabilização, cálculos
 Repository  →  Spring Data JPA + PostgreSQL
 ```
 
-A escolha foi deliberada. Com 50 balanças enviando a cada 100ms o volume máximo é em torno de 500 requisições por segundo — dentro do que o Spring Boot gerencia tranquilamente sem precisar de Kafka ou qualquer infraestrutura extra.
+A escolha foi deliberada. Com 50 balanças enviando a cada 100ms o volume máximo é em torno de 500 requisições por segundo, dentro do que o Spring Boot gerencia tranquilamente sem precisar de Kafka ou qualquer infraestrutura extra.
 
-O endpoint de recepção das balanças retorna `202 Accepted` imediatamente e delega o processamento para uma fila em memória. `202` em vez de `200` porque a ação não foi concluída no momento da resposta — o peso só é salvo depois que o scheduler detectar estabilização.
+O endpoint de recepção das balanças retorna `202 Accepted` imediatamente e delega o processamento para uma fila em memória. `202` em vez de `200` porque a ação não foi concluída no momento da resposta, o peso só é salvo depois que o scheduler detectar estabilização.
 
 ---
 
@@ -210,19 +210,19 @@ TransacaoTransporte (1) ──── (1) Pesagem
 
 ### IDs com sequence
 
-Todos os IDs usam `GenerationType.SEQUENCE` com `allocationSize = 1`. O padrão do JPA sem configuração explícita reserva blocos de 50 IDs de uma vez — o banco incrementa normalmente mas os IDs na aplicação ficam com saltos tipo 1, 51, 101. Com `allocationSize = 1` o incremento é sempre de 1 em 1, deixando o banco previsível e os registros em ordem de criação.
+Todos os IDs usam `GenerationType.SEQUENCE` com `allocationSize = 1`. O padrão do JPA sem configuração explícita reserva blocos de 50 IDs de uma vez, o banco incrementa normalmente mas os IDs na aplicação ficam com saltos tipo 1, 51, 101. Com `allocationSize = 1` o incremento é sempre de 1 em 1, deixando o banco previsível e os registros em ordem de criação.
 
 ### Fila em memória por balança
 
-Cada balança tem sua própria fila dentro de um `ConcurrentHashMap`. A fila é uma `ConcurrentLinkedDeque` — thread-safe para inserções simultâneas de múltiplas threads. Usei `ConcurrentLinkedDeque` em vez de `ArrayDeque` porque o endpoint de recepção é assíncrono e mais de uma thread pode tentar enfileirar na mesma balança ao mesmo tempo. `ArrayDeque` não é thread-safe e quebraria nesse cenário.
+Cada balança tem sua própria fila dentro de um `ConcurrentHashMap`. A fila é uma `ConcurrentLinkedDeque`, thread-safe para inserções simultâneas de múltiplas threads. Usei `ConcurrentLinkedDeque` em vez de `ArrayDeque` porque o endpoint de recepção é assíncrono e mais de uma thread pode tentar enfileirar na mesma balança ao mesmo tempo. `ArrayDeque` não é thread-safe e quebraria nesse cenário.
 
 ### Algoritmo de estabilização — janela deslizante com desvio padrão
 
 Esse foi o ponto mais interessante do projeto. O problema era: como saber automaticamente quando o peso parou de oscilar?
 
-A primeira ideia óbvia seria comparar a diferença entre a última e a penúltima leitura — se for pequena, estabilizou. Mas o sensor oscila — um spike isolado derrubaria esse critério mesmo com o caminhão completamente parado.
+A primeira ideia óbvia seria comparar a diferença entre a última e a penúltima leitura se for pequena, estabilizou. Mas o sensor oscila, um spike isolado derrubaria esse critério mesmo com o caminhão completamente parado.
 
-Cheguei na janela deslizante com desvio padrão depois de lembrar de um conceito que vi estudando algoritmos — a ideia de usar uma janela de observação sobre uma série de valores em vez de olhar ponto a ponto. O desvio padrão distribui o peso de todas as leituras da janela, então um outlier sozinho não quebra o diagnóstico de estabilidade.
+Cheguei na janela deslizante com desvio padrão depois de lembrar de um conceito que vi estudando algoritmos. A ideia de usar uma janela de observação sobre uma série de valores em vez de olhar ponto a ponto. O desvio padrão distribui o peso de todas as leituras da janela, então um outlier sozinho não quebra o diagnóstico de estabilidade.
 
 ```
 janela-minima = 10 leituras  →  100ms × 10 = 1 segundo de observação
@@ -231,19 +231,19 @@ threshold     = 0.5 kg       →  variação máxima aceitável
 
 O scheduler roda a cada 200ms — mais frequente que as leituras para não perder a janela de estabilização.
 
-A fila acumula leituras enquanto o caminhão está na balança. Quando chegam pelo menos 10 leituras, o desvio padrão é calculado sobre as **últimas 10** — a janela deslizante. Leituras antigas com oscilação forte saem do cálculo conforme entram leituras novas.
+A fila acumula leituras enquanto o caminhão está na balança. Quando chegam pelo menos 10 leituras, o desvio padrão é calculado sobre as **últimas 10** a janela deslizante. Leituras antigas com oscilação forte saem do cálculo conforme entram leituras novas.
 
-`max - min` é sensível a picos isolados. Se uma leitura espúria aparecer no meio de uma sequência estável, a diferença entre max e min sobe e o sistema conclui erroneamente que o peso ainda está oscilando. O desvio padrão considera todas as leituras — um outlier tem pouco peso sobre o resultado final.
+`max - min` é sensível a picos isolados. Se uma leitura espúria aparecer no meio de uma sequência estável, a diferença entre max e min sobe e o sistema conclui erroneamente que o peso ainda está oscilando. O desvio padrão considera todas as leituras, um outlier tem pouco peso sobre o resultado final.
 
 ### Idempotência sem Redis
 
-O ESP32 pode reenviar a mesma leitura se a rede falhar. Coloquei uma tabela `leitura_recebida` no próprio PostgreSQL — sem Redis, sem infra extra. A chave hoje é `balancaId + placa + peso (2 casas decimais)`. Se a mesma combinação chegar de novo, retorno 202 e não enfileiro de novo.
+O ESP32 pode reenviar a mesma leitura se a rede falhar. Coloquei uma tabela `leitura_recebida` no próprio PostgreSQL sem Redis, sem infra extra. A chave hoje é `balancaId + placa + peso (2 casas decimais)`. Se a mesma combinação chegar de novo, retorno 202 e não enfileiro de novo.
 
-Na primeira versão eu truncava o timestamp pro segundo. Só depois percebi que com leituras a cada 100ms isso bloqueava quase tudo — entrava 1 leitura por segundo na fila. Detalhe desse ajuste tá na seção de desafios lá embaixo.
+Na primeira versão eu truncava o timestamp pro segundo. Só depois percebi que com leituras a cada 100ms isso bloqueava quase tudo, entrava 1 leitura por segundo na fila. Detalhe desse ajuste tá na seção de desafios lá embaixo.
 
 ### Autenticação por API Key
 
-Cada balança tem uma `apiKey` única enviada no header `X-Balance-Key`. JWT seria overhead desnecessário — o ESP32 não tem contexto de sessão. API Key por dispositivo é o padrão adequado para esse tipo de integração.
+Cada balança tem uma `apiKey` única enviada no header `X-Balance-Key`. JWT seria overhead desnecessário, o ESP32 não tem contexto de sessão. API Key por dispositivo é o padrão adequado para esse tipo de integração.
 
 ### TransacaoTransporte — campo fim nullable
 
@@ -251,15 +251,15 @@ Quando a transação começa o fim ainda não existe. Só é preenchido depois q
 
 ### Pesagem guarda a placa como String
 
-Mesmo tendo o relacionamento com `Caminhao`, a `Pesagem` guarda a placa diretamente. É dado histórico — se o caminhão for removido do cadastro um dia, o registro da pesagem ainda precisa saber qual placa passou pela balança.
+Mesmo tendo o relacionamento com `Caminhao`, a `Pesagem` guarda a placa diretamente. É dado histórico, se o caminhão for removido do cadastro um dia, o registro da pesagem ainda precisa saber qual placa passou pela balança.
 
 ### StatusTransacao como @Enumerated(EnumType.STRING)
 
-Os status são fixos e definidos no código — nunca vão ser criados dinamicamente. Salvar o nome do enum como texto no banco deixa o dado legível sem precisar de join com tabela auxiliar.
+Os status são fixos e definidos no código, nunca vão ser criados dinamicamente. Salvar o nome do enum como texto no banco deixa o dado legível sem precisar de join com tabela auxiliar.
 
 ### GlobalExceptionHandler separado em advice/
 
-Centraliza o mapeamento de exceções em um único lugar. Controllers ficam responsáveis só pelo fluxo feliz — sem try/catch espalhado. O formato da resposta de erro é sempre o mesmo independente de onde a exceção foi lançada.
+Centraliza o tratamento de exceções em um único ponto da aplicação. Com isso, os controllers ficam focados apenas no fluxo principal, sem a necessidade de espalhar blocos try/catch pelo código. Além disso, todas as respostas de erro seguem um padrão único, independentemente de onde a exceção tenha sido gerada.
 
 ---
 
@@ -337,7 +337,7 @@ tara                  =  8.000 kg  (peso do caminhão vazio, vem do cadastro)
 pesoLiquido           = 20.500 kg  (peso real da carga de grão)
 ```
 
-A tara varia de caminhão para caminhão — cada modelo tem um peso vazio diferente. Por isso ela fica no cadastro do caminhão e não é um valor fixo no sistema.
+A tara varia de caminhão para caminhão, cada modelo tem um peso vazio diferente. Por isso ela fica no cadastro do caminhão e não é um valor fixo no sistema.
 
 ### Custo da carga
 
@@ -364,17 +364,17 @@ custoDaCarga         = R$ 2.767,50
 
 ## Desafios encontrados
 
-Coisas que apareceram durante o desenvolvimento — algumas eu resolvi, outras documentei como evolução futura.
+Coisas que apareceram durante o desenvolvimento algumas eu resolvi, outras documentei como evolução futura.
 
 ### Critério de estabilização
 
-O maior desafio foi definir quando considerar o peso estabilizado. Comparei as duas últimas leituras — quebra com spike. Tentei `max - min` da janela — mesmo problema.
+O maior desafio foi definir quando considerar o peso estabilizado. Comparei as duas últimas leituras quebra com spike. Tentei `max - min` da janela mesmo problema.
 
 Fui pro desvio padrão sobre as últimas 10 leituras. Lembrei disso de estudo de algoritmos (janela deslizante). Um outlier isolado pesa pouco no resultado.
 
 ### A fila inteira vs as últimas 10 (bug que só apareceu no teste)
 
-Na primeira versão o desvio padrão olhava **toda a fila acumulada**. Na teoria fazia sentido — quanto mais dado, melhor. Na prática, com o simulador, as 15 primeiras leituras oscilavam ±80 kg. Mesmo depois do peso estabilizar, o desvio geral ficava em ~29 kg e nunca passava no threshold de 0,5 kg. A pesagem nunca salvava.
+Na primeira versão o desvio padrão olhava **toda a fila acumulada**. Na teoria fazia sentido. Quanto mais dado, melhor. Na prática, com o simulador, as 15 primeiras leituras oscilavam ±80 kg. Mesmo depois do peso estabilizar, o desvio geral ficava em ~29 kg e nunca passava no threshold de 0,5 kg. A pesagem nunca salvava.
 
 Ajustei pra calcular só sobre as **últimas 10 leituras**, que era o que eu já tinha descrito como janela deslizante. Depois disso o simulador passou a funcionar de ponta a ponta.
 
@@ -392,7 +392,7 @@ A aplicação subia com erro de validação do Hibernate: coluna `tara` na tabel
 
 ### Margem calculada mas não aplicada
 
-O `PrecificacaoService` já tinha a fórmula de margem dinâmica. Só percebi depois que o `PesagemService` calculava a margem e descartava — salvava o custo só com preço de compra. Conectei o `calculaPrecoVenda` no fluxo de salvamento.
+O `PrecificacaoService` já tinha a fórmula de margem dinâmica. Só percebi depois que o `PesagemService` calculava a margem e descartava. salvava o custo só com preço de compra. Conectei o `calculaPrecoVenda` no fluxo de salvamento.
 
 ### Thread safety da fila
 
@@ -404,7 +404,7 @@ O JPA com `GenerationType.SEQUENCE` sem config reserva blocos de 50 IDs. Ficava 
 
 ### O que ainda daria pra melhorar
 
-- Fila persistente (Redis ou banco) — reiniciar o servidor perde leituras em memória
+- Fila persistente (Redis ou banco), reiniciar o servidor perde leituras em memória
 - Relatórios com filtro por data e agrupamento
 - Testes automatizados do algoritmo de estabilização
 - Autenticação nos endpoints de cadastro
