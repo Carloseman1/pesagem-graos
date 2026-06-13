@@ -1,0 +1,2 @@
+ALTER TABLE caminhao
+    ALTER COLUMN tara TYPE DECIMAL(10,2);
