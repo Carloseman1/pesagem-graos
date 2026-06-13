@@ -51,10 +51,11 @@ python scripts\simular_balanca.py
 
 **Conferir se salvou:**
 
-```powershell
-Invoke-RestMethod http://localhost:8080/api/v1/pesagens
-Invoke-RestMethod http://localhost:8080/api/v1/transacoes
+```cmd
+curl http://localhost:8080/api/v1/pesagens
+curl http://localhost:8080/api/v1/transacoes
 ```
+
 
 Ou abra no navegador: `http://localhost:8080/api/v1/pesagens`
 
