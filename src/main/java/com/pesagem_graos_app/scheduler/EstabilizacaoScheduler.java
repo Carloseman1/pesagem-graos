@@ -27,7 +27,9 @@ public class EstabilizacaoScheduler {
     @Scheduled(fixedDelay = 200)
     public void processarFilas() {
         filaDePesagem.obterTodasFilas().forEach((balancaId, fila) -> {
-            if (fila.isEmpty()) return;
+            log.info("Balança {} tem {} leituras na fila", balancaId, fila.size());
+            if (fila.isEmpty())
+                return;
 
             if (estabilizacaoService.estaEstavel(fila)) {
                 double pesoEstabilizado = estabilizacaoService.calcularPesoEstabilizado(fila);
@@ -37,9 +39,14 @@ public class EstabilizacaoScheduler {
                         pesagemService.salvarPesagemEstabilizada(
                                 balancaId, balanca, fila.peekLast(), pesoEstabilizado);
                         filaDePesagem.limparFila(balancaId);
+                        log.info("Pesagem salva com sucesso para balança {}", balancaId);
+
                     } catch (RegraDeNegocioException e) {
-                        log.warn("Peso estabilizado na balança {}, mas não foi possível salvar: {}",
-                                balancaId, e.getMessage());
+                        log.warn("Regra de negócio não atendida na balança {}: {}", balancaId, e.getMessage());
+                        filaDePesagem.limparFila(balancaId);
+
+                    } catch (Exception e) {
+                        log.error("Erro inesperado ao salvar pesagem da balança {}: {}", balancaId, e.getMessage(), e);
                         filaDePesagem.limparFila(balancaId);
                     }
                 });

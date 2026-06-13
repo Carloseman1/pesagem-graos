@@ -5,6 +5,7 @@ import java.math.RoundingMode;
 import java.time.LocalDateTime;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.pesagem_graos_app.domain.Balanca;
 import com.pesagem_graos_app.domain.Caminhao;
@@ -32,6 +33,7 @@ public class PesagemService {
     private final TipoGraoRepository tipoGraoRepository;
     private final PrecificacaoService precificacaoService;
 
+    @Transactional
     public void salvarPesagemEstabilizada(String balancaId, Balanca balanca,
             LeituraDTO ultimaLeitura, double pesoEstabilizado) {
 
