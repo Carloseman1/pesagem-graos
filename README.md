@@ -45,7 +45,7 @@ Espere aparecer `Started PesagemGraosApplication` no log. As migrations do Flywa
 ```powershell
 cd pesagem-graos
 pip install requests
-.\scripts\seed_demo.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\seed_demo.ps1
 python scripts\simular_balanca.py
 ```
 
