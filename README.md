@@ -28,7 +28,7 @@ Sistema para receber, estabilizar e armazenar leituras de peso de balanças dist
 
 ### Passo a passo completo
 
-Abra **dois terminais** (PowerShell, CMD ou terminal do IntelliJ — não precisa ser o Cursor).
+Abra **dois terminais** (PowerShell, CMD ou terminal do IntelliJ ou Vscode).
 
 **Terminal 1 — banco e aplicação:**
 
