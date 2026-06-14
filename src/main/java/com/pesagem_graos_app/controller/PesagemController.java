@@ -29,21 +29,22 @@ public class PesagemController {
     }
 
     @PostMapping("/pesagem")
-    public ResponseEntity<Void> receberLeitura(
-            @RequestHeader("X-Balance-Key") String apiKey,
-            @RequestBody LeituraDTO dto) {
+public ResponseEntity<Void> receberLeitura(
+        @RequestHeader("X-Balance-Key") String apiKey,
+        @RequestHeader(value = "X-Skip-Idempotencia", required = false) String skipIdempotencia,
+        @RequestBody LeituraDTO dto) {
 
-        balancaService.validarApiKey(dto.getId(), apiKey);
+    balancaService.validarApiKey(dto.getId(), apiKey);
 
+    if (skipIdempotencia == null) {
         String chave = IdempotenciaUtil.gerarChave(dto.getId(), dto.getPlaca(), dto.getPeso());
-
         if (idempotenciaService.jaProcessado(chave)) {
             return ResponseEntity.accepted().build();
         }
-
         idempotenciaService.registrar(chave);
-        filaDePesagem.enfileirar(dto);
-
-        return ResponseEntity.accepted().build();
     }
+
+    filaDePesagem.enfileirar(dto);
+    return ResponseEntity.accepted().build();
+}
 }

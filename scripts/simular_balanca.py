@@ -1,183 +1,149 @@
 import requests
 import time
 import random
-import threading
 from datetime import datetime
 
-# ─────────────────────────────────────────
-#  CONFIGURAÇÕES GERAIS
-# ─────────────────────────────────────────
-BASE_URL        = "http://localhost:8080/api/v1"
-TOTAL_BALANCAS  = 50
-PESO_BASE       = 28500.0
+BASE_URL = "http://localhost:8080/api/v1"
 
-# Lock para não misturar logs de threads diferentes no terminal
-log_lock = threading.Lock()
+def buscar_transacao_em_andamento():
+    """Busca automaticamente a primeira transação EM_ANDAMENTO no banco."""
+    response = requests.get(f"{BASE_URL}/transacoes", timeout=5)
+    transacoes = response.json()
 
-# Contadores globais (thread-safe)
-total_enviadas  = 0
-total_erros     = 0
-total_202       = 0
-counter_lock    = threading.Lock()
+    em_andamento = [t for t in transacoes if t["status"] == "EM_ANDAMENTO"]
 
+    if not em_andamento:
+        print("ERRO: Nenhuma transação EM_ANDAMENTO encontrada.")
+        print("Execute o seed antes de rodar o simulador.")
+        exit(1)
 
-# ─────────────────────────────────────────
-#  HELPERS DE LOG
-# ─────────────────────────────────────────
-def ts():
-    """Timestamp formatado para o log."""
-    return datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    return em_andamento[0]
 
+def buscar_balanca_da_filial(filial_id):
+    """Busca a balança cadastrada na filial da transação."""
+    response = requests.get(f"{BASE_URL}/balancas", timeout=5)
+    balancas = response.json()
 
-def log(balanca_id, fase, leitura_num, peso, status=None, erro=None):
-    global total_enviadas, total_erros, total_202
+    for balanca in balancas:
+        if balanca["filial"]["id"] == filial_id:
+            return balanca
 
-    with counter_lock:
-        total_enviadas += 1
-        if erro:
-            total_erros += 1
-        elif status == 202:
-            total_202 += 1
+    print(f"ERRO: Nenhuma balança encontrada para a filial {filial_id}")
+    exit(1)
 
-    with log_lock:
-        if erro:
-            print(
-                f"[{ts()}] ❌ {balanca_id} | {fase} | leitura {leitura_num:02d} "
-                f"| {peso:.2f} kg | ERRO: {erro}"
-            )
-        else:
-            icone = "✅" if status == 202 else "⚠️ "
-            print(
-                f"[{ts()}] {icone} {balanca_id} | {fase:<12} | leitura {leitura_num:02d} "
-                f"| {peso:.2f} kg | HTTP {status}"
-            )
+def buscar_tara_caminhao(placa):
+    """Busca a tara do caminhão pelo placa."""
+    response = requests.get(f"{BASE_URL}/caminhoes", timeout=5)
+    caminhoes = response.json()
 
+    for caminhao in caminhoes:
+        if caminhao["placa"] == placa:
+            return caminhao["tara"]
 
-def log_inicio(balanca_id, placa, peso_real):
-    with log_lock:
-        print(f"[{ts()}] 🚛 {balanca_id} | placa={placa} | peso_real={peso_real} kg | iniciando simulação")
+    print(f"ERRO: Caminhão {placa} não encontrado")
+    exit(1)
 
-
-def log_fim(balanca_id, placa):
-    with log_lock:
-        print(f"[{ts()}] 🏁 {balanca_id} | placa={placa} | simulação concluída")
-
-
-# ─────────────────────────────────────────
-#  ENVIO DE UMA LEITURA
-# ─────────────────────────────────────────
-def enviar_leitura(balanca_id, api_key, placa, peso, fase, leitura_num):
+def enviar_leitura(balanca_id, api_key, placa, peso):
+    inicio = time.perf_counter()
     try:
         response = requests.post(
             f"{BASE_URL}/pesagem",
             json={"id": balanca_id, "placa": placa, "peso": peso},
             headers={
                 "Content-Type": "application/json",
-                "X-Balance-Key": api_key
+                "X-Balance-Key": api_key,
+                "X-Skip-Idempotencia": "true"
             },
             timeout=5
         )
-        log(balanca_id, fase, leitura_num, peso, status=response.status_code)
+        tempo_ms = (time.perf_counter() - inicio) * 1000
+        return {"status": response.status_code, "tempo_ms": round(tempo_ms, 2)}
+
     except requests.exceptions.ConnectionError:
-        log(balanca_id, fase, leitura_num, peso, erro="aplicação offline")
+        print("ERRO: aplicacao nao esta rodando em localhost:8080")
+        exit(1)
     except requests.exceptions.Timeout:
-        log(balanca_id, fase, leitura_num, peso, erro="timeout 5s")
-    except Exception as e:
-        log(balanca_id, fase, leitura_num, peso, erro=str(e))
+        return {"status": "TIMEOUT", "tempo_ms": 0}
 
 
-# ─────────────────────────────────────────
-#  SIMULAÇÃO DE UMA BALANÇA (roda em thread)
-# ─────────────────────────────────────────
-def simular_balanca(indice):
-    balanca_id = f"balanca-{indice:02d}"
-    api_key    = f"chave-da-balanca-{indice}"
-    placa      = f"BAL{indice:04d}"          # ex: BAL0001, BAL0050
-    peso_real  = round(PESO_BASE + random.uniform(-2000, 2000), 2)  # cada caminhão tem peso diferente
+def log_leitura(fase, numero, peso, peso_real, resultado):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+    diferenca = peso - peso_real
+    print(
+        f"[{timestamp}] [{fase}] seq={numero:02d} "
+        f"peso={peso:8.2f}kg delta={diferenca:+7.2f}kg "
+        f"status={resultado['status']} latencia={resultado['tempo_ms']:6.2f}ms"
+    )
 
-    log_inicio(balanca_id, placa, peso_real)
 
-    # FASE 1 — oscilação alta (caminhão posicionando)
-    for i in range(15):
-        variacao = random.uniform(-80, 80)
+def executar_fase(nome, quantidade, variacao_min, variacao_max, balanca_id, api_key, placa, peso_real):
+    pesos = []
+    print()
+    print("=" * 25 + f" {nome} " + "=" * 25)
+
+    for i in range(quantidade):
+        variacao = random.uniform(variacao_min, variacao_max)
         peso = round(peso_real + variacao, 2)
-        enviar_leitura(balanca_id, api_key, placa, peso, "OSCILAÇÃO", i + 1)
+        resultado = enviar_leitura(balanca_id, api_key, placa, peso)
+        log_leitura(nome, i + 1, peso, peso_real, resultado)
+        pesos.append(peso)
         time.sleep(0.1)
 
-    # FASE 2 — estabilizando
-    for i in range(10):
-        variacao = random.uniform(-10, 10)
-        peso = round(peso_real + variacao, 2)
-        enviar_leitura(balanca_id, api_key, placa, peso, "ESTABILIZ.", i + 1)
-        time.sleep(0.1)
-
-    # FASE 3 — peso estável (scheduler deve detectar aqui)
-    for i in range(15):
-        variacao = random.uniform(-0.2, 0.2)
-        peso = round(peso_real + variacao, 2)
-        enviar_leitura(balanca_id, api_key, placa, peso, "ESTÁVEL", i + 1)
-        time.sleep(0.1)
-
-    log_fim(balanca_id, placa)
+    return pesos
 
 
-# ─────────────────────────────────────────
-#  RESUMO FINAL
-# ─────────────────────────────────────────
-def imprimir_resumo(duracao_segundos):
-    print()
-    print("=" * 60)
-    print("  RESUMO DA SIMULAÇÃO")
-    print("=" * 60)
-    print(f"  Balanças simuladas : {TOTAL_BALANCAS}")
-    print(f"  Leituras enviadas  : {total_enviadas}")
-    print(f"  Respostas 202      : {total_202}")
-    print(f"  Erros              : {total_erros}")
-    print(f"  Duração            : {duracao_segundos:.1f}s")
-    print(f"  Throughput médio   : {total_enviadas / duracao_segundos:.1f} req/s")
-    print("=" * 60)
-    print()
-    print("  Próximos passos para verificar:")
-    print("  curl http://localhost:8080/api/v1/pesagens")
-    print("  curl http://localhost:8080/api/v1/transacoes")
-    print()
-    print("  Esperado: 0 pesagens salvas (balanças não cadastradas no seed).")
-    print("  Para salvar de verdade, ajuste o seed_demo.ps1 para cadastrar")
-    print("  as 50 balanças e rode este script depois.")
-    print("=" * 60)
+def resumo(nome, pesos):
+    media = sum(pesos) / len(pesos)
+    print(f"\nResumo [{nome}] — leituras={len(pesos)} media={media:.2f}kg "
+          f"min={min(pesos):.2f}kg max={max(pesos):.2f}kg faixa={max(pesos)-min(pesos):.2f}kg")
 
 
-# ─────────────────────────────────────────
-#  MAIN
-# ─────────────────────────────────────────
+def simular():
+    print("=" * 80)
+    print("Buscando transação EM_ANDAMENTO no banco...")
+
+    transacao   = buscar_transacao_em_andamento()
+    placa       = transacao["caminhao"]["placa"]
+    filial_id   = transacao["filial"]["id"]
+    tara        = transacao["caminhao"]["tara"]
+    tipo_grao   = transacao["tipoGrao"]["nome"]
+    balanca     = buscar_balanca_da_filial(filial_id)
+    balanca_id  = balanca["identificador"]
+    api_key     = balanca["apiKey"]
+
+    peso_real = tara + random.uniform(15000, 25000)
+    peso_real = round(peso_real, 2)
+
+    print("=" * 80)
+    print("SIMULADOR DE BALANCA - PESAGEM DE GRAOS")
+    print("=" * 80)
+    print(f"Transacao : id={transacao['id']} status={transacao['status']}")
+    print(f"Balanca   : {balanca_id}")
+    print(f"Placa     : {placa}")
+    print(f"Motorista : {transacao['caminhao']['motorista']}")
+    print(f"Grao      : {tipo_grao}")
+    print(f"Filial    : {transacao['filial']['nome']} - {transacao['filial']['cidade']}")
+    print(f"Tara      : {tara:.2f} kg")
+    print(f"Peso real : {peso_real:.2f} kg")
+    print(f"Endpoint  : {BASE_URL}/pesagem")
+    print("=" * 80)
+
+    pesos_f1 = executar_fase("OSCILACAO_ALTA", 15, -80, 80, balanca_id, api_key, placa, peso_real)
+    pesos_f2 = executar_fase("ESTABILIZANDO",  10, -10, 10, balanca_id, api_key, placa, peso_real)
+    pesos_f3 = executar_fase("ESTAVEL",        15, -0.2, 0.2, balanca_id, api_key, placa, peso_real)
+
+    print("\n" + "=" * 80)
+    print("RESUMO FINAL")
+    print("=" * 80)
+    resumo("OSCILACAO_ALTA", pesos_f1)
+    resumo("ESTABILIZANDO",  pesos_f2)
+    resumo("ESTAVEL",        pesos_f3)
+
+    print("\n" + "=" * 80)
+    print("Simulacao concluida.")
+    print("Verifique os logs da aplicacao para confirmar o salvamento da pesagem.")
+    print("=" * 80)
+
+
 if __name__ == "__main__":
-    print()
-    print("=" * 60)
-    print("  SIMULADOR DE 50 BALANÇAS SIMULTÂNEAS — pesagem-graos")
-    print("=" * 60)
-    print(f"  Endpoint : {BASE_URL}/pesagem")
-    print(f"  Balanças : {TOTAL_BALANCAS} threads simultâneas")
-    print(f"  Leituras : 40 por balança (15 + 10 + 15)")
-    print(f"  Total    : {TOTAL_BALANCAS * 40} requisições")
-    print(f"  Iniciando em 3 segundos...")
-    print("=" * 60)
-    print()
-    time.sleep(3)
-
-    threads = []
-    inicio = time.time()
-
-    for i in range(1, TOTAL_BALANCAS + 1):
-        t = threading.Thread(target=simular_balanca, args=(i,), daemon=True)
-        threads.append(t)
-
-    # Sobe todas as threads de uma vez para simular simultaneidade real
-    for t in threads:
-        t.start()
-
-    # Aguarda todas terminarem
-    for t in threads:
-        t.join()
-
-    duracao = time.time() - inicio
-    imprimir_resumo(duracao)
+    simular()

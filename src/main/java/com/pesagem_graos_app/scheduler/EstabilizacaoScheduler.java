@@ -26,10 +26,15 @@ public class EstabilizacaoScheduler {
 
     @Scheduled(fixedDelay = 200)
     public void processarFilas() {
+        if (filaDePesagem.obterTodasFilas().isEmpty()) {
+            return;
+        }
+
         filaDePesagem.obterTodasFilas().forEach((balancaId, fila) -> {
-            log.info("Balança {} tem {} leituras na fila", balancaId, fila.size());
             if (fila.isEmpty())
                 return;
+
+            log.debug("Balança {} tem {} leituras na fila", balancaId, fila.size()); // ← debug
 
             if (estabilizacaoService.estaEstavel(fila)) {
                 double pesoEstabilizado = estabilizacaoService.calcularPesoEstabilizado(fila);
