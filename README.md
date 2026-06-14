@@ -86,19 +86,13 @@ Usei IA só pra gerar esse script Python. O backend inteiro eu fiz manualmente; 
 
 ## Arquitetura
 
-O projeto usa arquitetura em camadas com processamento assíncrono interno.
+<img width="2393" height="578" alt="image" src="https://github.com/user-attachments/assets/d5c469c4-fa05-4a44-9de2-ac3f762ad9c0" />
 
-```
-Controller  →  recebe a requisição, valida, responde
-Service     →  regras de negócio, estabilização, cálculos
-Repository  →  Spring Data JPA + PostgreSQL
-```
+O caminhão sobe na balança, o ESP32 detecta o peso e envia leituras a cada 100ms para o servidor. O controller recebe, autentica e enfileira respondendo 202 imediatamente. O scheduler consome a fila de forma assíncrona, detecta estabilização e salva no banco.
 
 A escolha foi deliberada. Com 50 balanças enviando a cada 100ms o volume máximo é em torno de 500 requisições por segundo, dentro do que o Spring Boot gerencia tranquilamente sem precisar de Kafka ou qualquer infraestrutura extra.
 
 O endpoint de recepção das balanças retorna `202 Accepted` imediatamente e delega o processamento para uma fila em memória. `202` em vez de `200` porque a ação não foi concluída no momento da resposta, o peso só é salvo depois que o scheduler detectar estabilização.
-
----
 
 ## Estrutura do projeto
 
@@ -174,6 +168,7 @@ src/main/resources/
     ├── V6__cria_tabela_transacao_transporte.sql
     ├── V7__cria_tabela_idempotencia.sql
     └── V8__corrige_tipo_coluna_tara_caminhao.sql
+    └── V9__transacao_transporte.sql
 ```
 
 ---
@@ -191,6 +186,7 @@ V5  pesagem               →  depende de balanca e tipo_grao
 V6  transacao_transporte  →  depende de caminhao, tipo_grao, filial e pesagem
 V7  leitura_recebida      →  controle de idempotência, sem dependências
 V8  caminhao.tara         →  corrige FLOAT8 → DECIMAL(10,2) em bancos já criados
+V9  transacao_transporte  →  partial unique index para evitar transação duplicada por race condition
 ```
 
 ---
@@ -238,7 +234,8 @@ A fila acumula leituras enquanto o caminhão está na balança. Quando chegam pe
 
 ### Idempotência sem Redis
 
-O ESP32 pode reenviar a mesma leitura se a rede falhar. Coloquei uma tabela `leitura_recebida` no próprio PostgreSQL sem Redis, sem infra extra. A chave hoje é `balancaId + placa + peso (2 casas decimais)`. Se a mesma combinação chegar de novo, retorno 202 e não enfileiro de novo.
+A chave hoje é `balancaId + placa + peso (2 casas decimais) + contador sequencial`. 
+O contador garante que cada leitura é única mesmo que o peso se repita na fase estável.
 
 Na primeira versão eu truncava o timestamp pro segundo. Só depois percebi que com leituras a cada 100ms isso bloqueava quase tudo, entrava 1 leitura por segundo na fila. Detalhe desse ajuste tá na seção de desafios lá embaixo.
 
