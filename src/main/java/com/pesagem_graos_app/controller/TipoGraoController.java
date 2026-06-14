@@ -24,7 +24,9 @@ public class TipoGraoController {
 
     @PostMapping
     public ResponseEntity<TipoGrao> criar(@RequestBody @Valid TipoGraoDTO dto) {
+
         TipoGrao tipo = new TipoGrao();
+
         tipo.setNome(dto.getNome());
         tipo.setPrecoComprarPorTonelada(dto.getPrecoComprarPorTonelada());
         tipo.setEstoqueAtualToneladas(dto.getEstoqueAtualToneladas());

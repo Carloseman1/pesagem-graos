@@ -17,7 +17,7 @@ public class FilaDePesagem {
 
     public void enfileirar(LeituraDTO leitura) {
         filas.computeIfAbsent(leitura.getId(), id -> new ConcurrentLinkedDeque<>())
-             .addLast(leitura);
+            .addLast(leitura);
     }
 
     public Map<String, ConcurrentLinkedDeque<LeituraDTO>> obterTodasFilas() {

@@ -2,6 +2,7 @@ package com.pesagem_graos_app.controller.advice;
 
 import java.util.stream.Collectors;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -51,5 +52,11 @@ public class GlobalExceptionHandler {
         log.error("Erro inesperado", ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(new ErroDTO("ERRO_INTERNO", "Ocorreu um erro inesperado"));
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ErroDTO> handleDataIntegrity(DataIntegrityViolationException ex) {
+        return ResponseEntity.status(409).body(
+                new ErroDTO("TRANSACAO_DUPLICADA", "Conflito de dados, possível transação duplicada"));
     }
 }
